@@ -1,0 +1,523 @@
+<!doctype html>
+<html>
+	<head>
+		<meta charset="utf-8" />
+		<title>HTML5 - Jeu de tir</title>
+		<style>
+			#ZoneJeu {
+				float:left;
+				width:50%;
+				height:auto;
+			}
+			
+			#ZoneScore {
+				float:left;
+				width:50%;
+				height:auto;
+			}
+		</style>
+		<script src="jquery-latest.js" ></script>
+		<script src="chronometre.js" ></script>
+		<script>
+			$(document).ready(function(){
+		
+			// Canvas
+			var ctx;
+			var LARGEUR;
+			var HAUTEUR;
+			
+			// Canon
+			var canon_hauteur;
+			var canon_largeur;
+			var canon_x;
+			var canon_y;
+			var canon_couleur;
+			
+			// Balle
+			var x=0;
+			var y=0;
+			var dx=0;
+			var dy=0;
+			var couleur_balle="red";
+			var rayon_balle=5;
+			var balleLancee=false;
+			
+			// Cibles
+			var	nombreCibles;
+			var	largeurCible;
+			var	hauteurCible;
+			var	ciblesRestantes;
+			var cibles;		// tableau des positions et états des cibles
+			
+			// Clavier
+			var FLECHE_GAUCHE = 37;
+			var FLECHE_DROITE = 39;
+			var BARRE_ESPACE = 32;
+			var gaucheEnfoncee = false;
+			var droiteEnfoncee = false;
+			var espaceEnfoncee = false;
+			
+			// Début et fin de partie
+			var jeuDemarre=false;
+			var intervalID=0;
+			
+			// Sons
+			var sonCanon = new Audio("sons/sonCanon.ogg");
+			var sonCible = new Audio("sons/sonCible.ogg");
+			var sonGagne = new Audio("sons/sonGagne.ogg");
+			var sonPerdu = new Audio("sons/sonPerdu.ogg");
+			
+			// Sauvegarde des scores dans un tableau
+			var listeScores = new Array();
+			var nomJoueur;
+			var temps;
+			
+			// Images canon et cible
+			var imageCanon;
+			var imageCible;
+			
+			
+			/* Gestion des scores */
+			function convertirTempsVersScore(min,sec,dix) {
+				// fonction pour convertir le temps en minutes/secondes/dixièmes
+				// vers un nombre à sauvegarder comme score
+				var calcul;
+				calcul = dix + (10*sec) + (60*10*min);
+				return calcul;
+			}
+			
+			function convertirScoreVersTemps(sc) {
+				// fonction pour convertir le score sauvegardé
+				// vers un temps en minutes/secondes/dixièmes
+				var t;
+				var m;
+				var s;
+				var d;
+				var reste;
+				var score;
+				
+				m = Math.floor(sc/(60*10));
+				reste = sc%600;
+				s = Math.floor(reste/10);
+				d = reste%10;
+				
+				t = m + ":" + s + "." + d;
+				
+				return t;
+			}
+			
+			function ajouterNomJoueur(score,nom) {
+				// fonction qui ajoute le nom du joueur après le score pour la sauvegarde
+				var chaine="";
+				chaine = score + " - " + nom;
+				return chaine;
+			}
+			
+			function enleverNomJoueur(chaine) {
+				// fonction qui enleve le nom du joueur après le score pour la sauvegarde
+				// ex : si on a : 123 - Test
+				//      on veut récupérer uniquement le score situé avant le séparateur " - "
+				//      on cherche d'abord où se situe le séparateur dans la chaine
+				//      ensuite on découpe le morceau avant ce séparateur
+				var souschaine;
+				var positionSeparateur;
+				
+				// chercher où est le séparateur
+				positionSeparateur = chaine.indexOf(" - ",0);
+				// découper la chaine pour enlever le nom et récupérer le score
+				souschaine = chaine.substring(0,positionSeparateur);
+				// retourner le score uniquement
+				return souschaine;
+			}
+
+			function enleverScore(chaine) {
+				// fonction qui enleve le nom du joueur après le score pour la sauvegarde
+				// ex : si on a : 123 - Test
+				//      on veut récupérer uniquement le score situé avant le séparateur " - "
+				//      on cherche d'abord où se situe le séparateur dans la chaine
+				//      ensuite on découpe le morceau avant ce séparateur
+				var souschaine;
+				var positionSeparateur;
+				
+				// chercher où est le séparateur
+				positionSeparateur = chaine.indexOf(" - ",0);
+				// découper la chaine pour enlever le nom et récupérer le score
+				souschaine = chaine.substring(positionSeparateur+3, chaine.length);
+				// retourner le score uniquement
+				return souschaine;
+			}
+			
+			function sauvegarderScore(nom,score) {
+				if (localStorage) {
+					// le navigateur supporte le localStorage HTML5
+						
+					// le nombre actuel d'éléments dans mon tableau me donne
+					// l'indice pour sauver une nouvelle valeur
+					// La 1ère fois qu'on utilise le jeu, il y a 0 valeur mémorisée
+					// Donc si on sauve un nouveau meilleur score, on lui donne l'indice 0
+					// La 2ème fois qu'on utilise le jeu, il y a 1 valeur mémorisée
+					// Donc si on sauve un nouveau meilleur score, on lui donne l'indice 1
+					// etc...
+					var scoreIndex = listeScores.length;
+						
+					// on crée le contenu de la nouvelle entrée dans le tableau
+					var nouveauScore;
+					
+					nouveauScore = convertirTempsVersScore(minutes,secondes,dixiemes);
+					
+					listeScores[scoreIndex]= ajouterNomJoueur(score,nomJoueur);
+						
+					// on trie le tableau avant de sauvegarder
+					listeScores.sort();
+						
+					// on sauvegarde sur la clé "scoresTir"
+					localStorage.setItem("scoresTir",listeScores);
+				}
+			}
+				
+			function lireScores() {
+				// on récupère le contenu en localStorage de la clé "scoresTir"
+				// après avoir "splité" (scindé) la chaine complete grace au séparateur ","
+				listeScores = localStorage.getItem("scoresTir").split(",");
+					
+				// on trie les éléments du tableau par ordre croissant ou alphabétique
+				listeScores.sort();
+					
+				// on affiche dans la console
+					// les éléments du tableau
+					console.log(listeScores);
+					// le nombre d'éléments
+					console.log(listeScores.length);
+			}
+				
+			function afficherScores() {
+				var valeurScore=0;
+				var valeurJoueur="";
+				var chaineScore="";
+				
+				document.getElementById("meilleursScores").innerHTML = "MEILLEURS SCORES :<br>";
+				for (var i=0;i<listeScores.length;i++) {
+					// récupérer chaque ligne de score et enlever le nom du Joueur
+					console.log("ligne:"+listeScores[i]);
+					valeurScore = enleverNomJoueur(listeScores[i]);
+					console.log(valeurScore);
+					// récupérer chaque ligne de score et enlever le score du Joueur
+					valeurJoueur= enleverScore(listeScores[i]);
+					console.log(valeurJoueur);
+					// recréer la chaine avec le score converti en temps
+					chaineScore = ajouterNomJoueur(convertirScoreVersTemps(valeurScore),valeurJoueur);
+					console.log(chaineScore);
+					
+					document.getElementById("meilleursScores").innerHTML += chaineScore + "<br>";
+				}
+			}
+			
+			function tir() {
+				init_balle();
+				
+				if (balleLancee == false) {
+					balleLancee=true;
+					dy=-10;
+					// jouer le son quand on tire
+					sonCanon.play();
+				}
+			}
+			
+			
+			function startGame() {
+				if (jeuDemarre==false) {
+					jeuDemarre=true;	// dire que le jeu est démarré
+					Chrono();			// lancer le chrono
+					}
+			}
+				
+			function debutPartie() {
+				// tester si le jeu n'est pas démarré
+				if (jeuDemarre==false) {
+					startGame();		// démarrer la partie
+					razChrono();		// remettre le chrono à zéro
+					
+					// dessine la balle à sa nouvelle position toutes les 25 millisecondes
+					intervalID = setInterval(dessine,25);	
+					}
+					
+				// on fait disparaitre les boutons de démarrage et de nouvelle partie
+				// pour éviter de lancer 2 parties en même temps
+				document.getElementById("startButton").style.visibility="hidden";
+				document.getElementById("newGame").style.visibility="hidden";
+			}
+				
+			function finPartie() {
+				stopChrono();
+				jeuDemarre=false;
+
+				// on cache le bouton "démarrer le jeu"	car on vient de finir la partie
+				document.getElementById("startButton").style.visibility="hidden";
+				// on affiche le bouton "nouvelle partie" pour éventuellement redémarrer
+				document.getElementById("newGame").style.visibility="visible";
+			}			
+			
+			// gestionnaire de clavier
+			function toucheEnfoncee(evenement) {
+				switch(evenement.keyCode) {
+					case FLECHE_GAUCHE: gaucheEnfoncee=true;
+										break;
+					case FLECHE_DROITE: droiteEnfoncee=true;
+										break;
+					case BARRE_ESPACE : espaceEnfoncee=true;
+										if (balleLancee==false) {
+											tir();
+											}
+										break;
+				}
+			}
+			
+			function toucheRelachee(evenement) {
+				switch(evenement.keyCode) {
+					case FLECHE_GAUCHE: gaucheEnfoncee=false;
+										break;
+					case FLECHE_DROITE: droiteEnfoncee=false;
+										break;
+					case BARRE_ESPACE : espaceEnfoncee=false;
+										break;
+				}
+			}
+			
+			// capture des événements
+			$(document).keydown(toucheEnfoncee);
+			$(document).keyup(toucheRelachee);
+			
+			// capture des boutons
+			$("#startButton").click(debutPartie);
+			
+			$("#newGame").click(demarrage);
+
+			
+			function dessineRectangle(x,y,largeur,hauteur,couleur) {
+				ctx.beginPath();
+				ctx.fillStyle = couleur;
+				ctx.fillRect(x,y,largeur,hauteur);
+				ctx.closePath();
+				ctx.fill();
+			}
+			
+			function dessineBalle() {
+				ctx.beginPath();
+				ctx.fillStyle = couleur_balle;
+				
+				if (balleLancee == false) {
+					x = canon_x + canon_largeur/2;
+					y = canon_y + rayon_balle;
+					}
+					
+				ctx.arc(x,y,rayon_balle,0,2*Math.PI,false);
+				ctx.closePath();
+				ctx.fill();
+			}
+			
+			function dessineCanon() {
+				// Est-ce-qu'on a enfoncé une touche du clavier ?
+				if (gaucheEnfoncee == true) {
+					if (canon_x > canon_largeur/2) {
+						canon_x -= 5;	// vers la gauche, X est décrémenté
+					}
+				}
+				else if (droiteEnfoncee == true) {
+					if (canon_x < LARGEUR-canon_largeur) {
+						canon_x += 5;	// vers la droite, X est incrémenté
+					}
+				}
+			
+				//dessineRectangle(canon_x,canon_y,canon_largeur,canon_hauteur,canon_couleur);
+				
+				// afficher une image à la place du canon
+				imageCanon = document.getElementById("canon");
+				ctx.drawImage(imageCanon,canon_x,canon_y);
+			}
+			
+			function dessineCibles() {
+				var i;
+				i = ciblesRestantes-1;
+				// on dessine uniquement les cibles qui n'ont pas été touchées
+				// donc avec la valeur 1 pour l'indice [0]
+				if (cibles[i][0] == 1) {
+					/*dessineRectangle(cibles[i][1],cibles[i][2],largeurCible,hauteurCible,"green");*/
+					
+					// récupérer l'objet image de la cible
+					imageCible = document.getElementById("cible");
+					ctx.drawImage(imageCible,cibles[i][1],cibles[i][2]);
+				}	
+			}
+			
+			function clear() {
+				ctx.clearRect(0,0,LARGEUR,HAUTEUR);
+			}
+			
+			/* Gagne ou perdu */
+			function afficheMessage(message, couleurTexte, tailleTexte) {
+				var textSize = tailleTexte;
+				ctx.font = textSize+"px Verdana";
+				ctx.textAlign = "center";
+				ctx.fillStyle = couleurTexte;
+				ctx.fillText(message, LARGEUR/2, HAUTEUR/2);
+			}
+
+			function gagne() {
+				finPartie();
+				afficheMessage("Bravo !","green",50);
+				
+				// jouer le son quand on a gagne la partie
+				sonGagne.play();
+				
+				// sauvegarder le nouveau score du joueur gagnant
+				nomJoueur = prompt("Entrer le nom du joueur","");
+				temps = convertirTempsVersScore(minutes,secondes,dixiemes);
+				
+				sauvegarderScore(nomJoueur, temps);
+				// afficher tous les scores
+				afficherScores();
+				}
+				
+			function perdu() {
+				finPartie();
+				afficheMessage("C'est perdu !","red",50);
+				// jouer le son quand on a perdu la partie
+				sonPerdu.play();
+				}
+			
+			function dessine() {
+				clear();
+				dessineCanon();
+				dessineCibles();
+				
+				if (balleLancee == true) {
+					dessineBalle();
+				}
+				
+				// détection de la collision de la balle et la cible
+				if ((x>cibles[ciblesRestantes-1][1]) && (x<cibles[ciblesRestantes-1][1]+largeurCible) && (y<cibles[ciblesRestantes-1][2]+hauteurCible)) {
+					ciblesRestantes--;
+					y=-10;
+					// jouer le son quand on touche la cible
+					sonCible.play();
+				}
+				
+				if (ciblesRestantes==0) {
+					clear();
+					clearInterval(intervalID);
+					gagne();
+				}
+				
+				if (y<0) {
+					dy=0;
+					init_balle();
+				}
+
+				x += dx;
+				y += dy;
+			}
+		
+			function init() {
+				ctx = $("#monCanvas")[0].getContext('2d');
+				LARGEUR = $("#monCanvas").width();
+				HAUTEUR = $("#monCanvas").height();
+				
+				document.getElementById("startButton").style.visibility = "visible";
+				document.getElementById("newGame").style.visibility = "hidden";
+			}
+			
+			function init_canon() {
+				/*canon_hauteur = 30;
+				canon_largeur = 10;*/
+				
+				// récupérer l'objet image du canon
+				imageCanon = document.getElementById("canon");
+				// extraire ses hauteur et largeur
+				canon_hauteur = $("#canon").height();
+				canon_largeur = $("#canon").width();
+				
+				canon_x = LARGEUR/2;
+				canon_y = HAUTEUR - canon_hauteur;
+				canon_couleur = "blue";
+			}
+			
+			function init_balle() {
+				balleLancee=false;
+				x = canon_x + canon_largeur/2;
+				y = canon_y + rayon_balle;
+			}
+			
+			function positionAleatoire(minimum, maximum) {
+				var nombre;
+				nombre = minimum + Math.floor((maximum-minimum)*Math.random());
+				return nombre;
+			}
+			
+			function init_cibles() {
+				nombreCibles = 10;
+				
+				/*largeurCible = 20;
+				hauteurCible = 20;*/
+				
+				// récupérer l'objet image de la cible
+				imageCible = document.getElementById("cible");
+				// extraire ses hauteur et largeur
+				hauteurCible = $("#cible").height();
+				largeurCible = $("#cible").width();
+				
+				ciblesRestantes = nombreCibles;
+				
+				cibles = new Array(nombreCibles);
+				
+				for (var i=0;i<nombreCibles;i++) {
+					// 3 éléments à mémoriser par cibles
+					// - position en x
+					// - position en y
+					// - état de la cible
+					cibles[i] = new Array(3);
+					
+					// cible existante = 1, cible détruite = 0
+					cibles[i][0] = 1;
+					cibles[i][1] = positionAleatoire(largeurCible,LARGEUR-largeurCible);
+					cibles[i][2] = positionAleatoire(hauteurCible,HAUTEUR-100-hauteurCible);
+				}
+			}
+		
+			function demarrage() {
+				// initialisations des éléments
+				init();
+				init_canon();
+				init_balle();
+				init_cibles();
+				// dessin des éléments
+				clear();
+				dessine();
+				razChrono();
+				// lecture et affichage des scores actuels
+				lireScores();
+				afficherScores();
+			}
+		
+			/* Appel de la fonction exemples à la fin du chargement de la page */
+			window.onload = demarrage;
+			
+			});
+		</script>
+	</head>
+	<body>
+		<h1>HTML5 - Jeu de tir</h1>
+		<img id="canon" width="32" height="43" src="images/petit_canon.png" alt="Canon" style="display:none">
+		<img id="cible" width="48" height="48" src="images/cible.png" alt="Cible" style="display:none">
+		<div id="ZoneJeu">
+			<canvas id="monCanvas" width="400" height="600" style="border: 1px solid black;">
+				Texte alternatif si le navigateur ne supporte pas le canvas HTML5
+			</canvas>
+		</div>
+		<div id="ZoneScore">
+			<h2>CHRONO : <span id="minutes"></span>:<span id="secondes"></span>.<span id="dixiemes"></span></h2>
+			<input type="button" value="Démarrer le jeu" id="startButton" />
+			<input type="button" value="Nouvelle partie" id="newGame" />
+			<p id="meilleursScores"></p>
+		</div>	
+	</body>
+</html>
